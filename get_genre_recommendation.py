@@ -1,24 +1,59 @@
+import os
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough # Import RunnablePassthrough
 
-import requests
-from google import genai
+# Ensure you have set your API key as an environment variable
+# export GOOGLE_API_KEY="YOUR_API_KEY"
+# Or you can set it directly in the code (less recommended for security)
+# os.environ["GOOGLE_API_KEY"] = "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM" # Replace with your actual key
 
-def call_gemini_api(prompt, api_key):
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+def get_preference_response_langchain(time: int, mood: str, language: str):
+    """
+    Generates a movie/show preference response using Langchain and the Gemini API.
+
+    Args:
+        time: The number of hours the user is free.
+        mood: The user's current mood.
+        language: The preferred language for the movie/show.
+
+    Returns:
+        A dictionary containing the user's preferences and the Gemini API response.
+    """
+    # 1. Define the Language Model (LLM)
+    # Using ChatGoogleGenerativeAI for the chat-based Gemini models
+    llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.7) # Using gemini-pro for chat
+
+    # 2. Define the Prompt Template
+    prompt_template = PromptTemplate.from_template(
+        "I am free for {time} hours, I am feeling {mood} today "
+        "and I would like to watch a show/movie in {language} language. "
+        "Please suggest some options based on these preferences."
     )
-    return response.text
 
-def get_preference_response(time, mood, language):
-    prompt = f"I am free for {time} hours, I am feeling {mood} today and I would like to watch a show/movie in {language} language."
-    gemini_reply = call_gemini_api(prompt, api_key="AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM")
+    # 3. Define the Output Parser
+    # We want the raw text response from the model
+    output_parser = StrOutputParser()
+
+    # 4. Create a Langchain Chain
+    # This chain takes the input variables, formats the prompt, and passes it to the LLM
+    chain = (
+        {"time": RunnablePassthrough(), "mood": RunnablePassthrough(), "language": RunnablePassthrough()} # Pass inputs directly
+        | prompt_template
+        | llm
+        | output_parser
+    )
+
+    # 5. Invoke the Chain with Input
+    # Pass the input variables as a dictionary to the chain
+    gemini_reply = chain.invoke({"time": time, "mood": mood, "language": language})
 
     preference_dict = {
         "time": time,
         "mood": mood,
         "language": language,
-        "gemini_reply": gemini_reply  # Should now be just a list of movies
+        "gemini_reply": gemini_reply
     }
     return preference_dict
 
