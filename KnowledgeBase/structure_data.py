@@ -92,14 +92,14 @@ def Get_Knowledge_Base(flag):
         vector_store = Chroma(
             collection_name="Knowledge_Base_Movies_eng",
             embedding_function=embeddings,
-            persist_directory="./kb_db",  
+            persist_directory="./KnowledgeBase/kb_db",  
         )
         return vector_store
     else:
         vector_store = Chroma(
             collection_name="Knowledge_Base_Movies_bolly",
             embedding_function=embeddings,
-            persist_directory="./kb_db",  
+            persist_directory="./KnowledgeBase/kb_db",  
         )
         return vector_store
 
