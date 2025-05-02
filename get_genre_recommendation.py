@@ -1,4 +1,3 @@
-
 import requests
 from google import genai
 
@@ -11,14 +10,19 @@ def call_gemini_api(prompt, api_key):
     return response.text
 
 def get_preference_response(time, mood, language):
-    prompt = f"I am free for {time} hours, I am feeling {mood} today and I would like to watch a show/movie in {language} language."
+    # Updated prompt for concise output
+    prompt = (
+        f"I am free for {time} hours, I am feeling {mood} today, and I would like "
+        f"to watch a show/movie in {language} language. Please respond with a list "
+        f"of recommended movies only—no extra text."
+    )
     gemini_reply = call_gemini_api(prompt, api_key="AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM")
 
     preference_dict = {
         "time": time,
         "mood": mood,
         "language": language,
-        "gemini_reply": gemini_reply
+        "gemini_reply": gemini_reply  # Should now be just a list of movies
     }
     return preference_dict
 
