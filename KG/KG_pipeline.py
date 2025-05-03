@@ -5,6 +5,7 @@ from neo4j import GraphDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from langchain_groq import ChatGroq
 from typing import List
 import os
 from pydantic import BaseModel, Field
@@ -33,7 +34,13 @@ Return a JSON object with the following fields:
 - rating: Minimum rating (e.g., 8.0), or 'any'
 """.strip())
 
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.3)
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+)
 def get_top_k_movies_on_mood(mood, k):
     query = f"""
     MATCH (mo:Mood {{name: $mood}})-[:RECOMMENDS]->(m:Movie)

@@ -13,6 +13,7 @@ from KnowledgeBase.structure_data import Get_Knowledge_Base
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from MoodHandling.mood_handling_text import infer_user_mood
+from langchain_groq import ChatGroq
 # Initialize vector store once
 vs = Get_Knowledge_Base("E")
 
@@ -71,7 +72,13 @@ def get_top_k_movies_llm(combined_movies: List[dict], k: int = 5) -> dict:
         "k": k,
     })
 
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        temperature=0,
+        max_tokens=None,
+        timeout=None,
+        max_retries=2,
+    )
     response = llm.invoke(prompt)
 
     try:
@@ -101,6 +108,7 @@ def main():
             "genre": genre,
         }
         user_data["mood"] = infer_user_mood(user_data)
+        # print(user_data)
         recommendations_from_KG = run_KG_Fetch(user_data, 3)
         similarity_recommendations_from_KG = []
         for recond in recommendations_from_KG:

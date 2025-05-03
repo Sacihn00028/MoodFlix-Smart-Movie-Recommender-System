@@ -3,7 +3,7 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-
+from langchain_groq import ChatGroq
 from typing import List
 from pydantic import BaseModel, Field
 os.environ["GOOGLE_API_KEY"] ="AIzaSyApbJXSZW8wV7MBXlBv0W0MA3KGHI_fDp4"
@@ -21,7 +21,13 @@ def questions_to_cstring(user_data, n):
     runtime = user_data.get('runtime', 'any')
     age_group = user_data.get('age', 'any')
 
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        temperature=0,
+        max_tokens=None,
+        timeout=None,
+        max_retries=2,
+    )
 
     # Enhanced Prompt Template
     prompt_template = PromptTemplate.from_template(
@@ -66,7 +72,13 @@ def questions_to_cstring_iter(user_data, n, notincl):
     genre = user_data.get('genre', 'any')
     runtime = user_data.get('runtime', 'any')
     age_group = user_data.get('age', 'any')
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        temperature=0,
+        max_tokens=None,
+        timeout=None,
+        max_retries=2,
+    )
     # Enhanced Prompt Template
     prompt_template = PromptTemplate.from_template(
         "Based on the following user preferences, generate {n} detailed characteristic strings. "

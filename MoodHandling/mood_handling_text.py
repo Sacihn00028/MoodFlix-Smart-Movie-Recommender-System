@@ -3,15 +3,15 @@ import json
 from typing import List
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-# Set your Gemini API key
+from langchain_groq import ChatGroq
 os.environ["GOOGLE_API_KEY"] = "AIzaSyCdXWY7Fz7XUcnrEQUnU586BbQqGQLhv6U"  # Replace with actual API key
 
-# Instantiate the Gemini LLM
-llm = ChatGoogleGenerativeAI(
-    api_key=os.environ["GOOGLE_API_KEY"],
-    model="gemini-1.5-pro-latest",
-    temperature=0.7,
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
 )
 
 # Define prompt template
