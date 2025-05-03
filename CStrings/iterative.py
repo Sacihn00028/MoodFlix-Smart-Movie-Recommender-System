@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 from typing import List
 from pydantic import BaseModel, Field
-os.environ["GOOGLE_API_KEY"] ="AIzaSyAEMuytCYb52YXhTnHIQ9B1mNE9upQvKTU"
+os.environ["GOOGLE_API_KEY"] ="AIzaSyApbJXSZW8wV7MBXlBv0W0MA3KGHI_fDp4"
 class CharacteristicString(BaseModel):
     # The description here is important to guide the LLM
     prompt : str = Field(description="Detailed characteristic string describing a potential movie or show plot/theme based on user preferences. Avoid specific titles or character names.")

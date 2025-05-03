@@ -7,7 +7,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
-os.environ["GOOGLE_API_KEY"] ="AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM"
+os.environ["GOOGLE_API_KEY"] ="AIzaSyApbJXSZW8wV7MBXlBv0W0MA3KGHI_fDp4"
 
 class CharacteristicString(BaseModel):
     # The description here is important to guide the LLM
