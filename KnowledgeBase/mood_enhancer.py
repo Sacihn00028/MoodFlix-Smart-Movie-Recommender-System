@@ -31,8 +31,12 @@ def predict_mood(text: str) -> str:
     with torch.no_grad():
         outputs = model(**inputs)
     probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
+    dic = []
+    for i in range(len(probs)):
+        dic.append((probs[i], emotion_list[i]))
+    dic.sort(reverse=True)
     preds = [emotion_list[i] for i, p in enumerate(probs) if p > 0.3]
-    return ", ".join(preds) if preds else "neutral"
+    return ", ".join([x[1] for x in dic[0:3]])
 
 
 csv_file = "./KnowledgeBase/lang.csv"

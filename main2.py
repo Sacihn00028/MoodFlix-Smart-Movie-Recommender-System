@@ -14,6 +14,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from MoodHandling.mood_handling_text import infer_user_mood
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 vs = Get_Knowledge_Base("E")
 class MovieRecommendation(BaseModel):
     title: str = Field(..., description="Movie title")

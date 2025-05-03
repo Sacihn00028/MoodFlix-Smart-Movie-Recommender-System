@@ -3,6 +3,7 @@ from CStrings.iterative import iterative_cstring_gen
 from langchain.schema import Document
 from KnowledgeBase.knowledge_base import Get_knowledge_Base_Lang
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from typing import List, Union
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
