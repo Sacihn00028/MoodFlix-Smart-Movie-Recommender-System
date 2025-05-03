@@ -33,6 +33,7 @@ def Load_language_dataset_into_Chroma():
                     f"Release Date: {row['release_date']}\n"
                     f"Runtime: {row['runtime']} minutes\n"
                     f"Overview: {row['overview']}\n"
+                    f"Mood:{row['mood']}\n"
                 ),
                 metadata={
                     'original_language': row['original_language'],
@@ -45,6 +46,7 @@ def Load_language_dataset_into_Chroma():
                     'vote_count': row.get('vote_count', None),
                     'revenue': row.get('revenue', None),
                     'overview': row['overview'],
+                    'mood':row['mood']
                 }
             )
             langchain_documents.append(document)
