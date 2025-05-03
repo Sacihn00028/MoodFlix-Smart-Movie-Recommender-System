@@ -1,13 +1,17 @@
+import streamlit as st
+import time
 import os
+import re
+import ast
 import google.generativeai as genai
 import speech_recognition as sr
 
 # --- Configure Gemini API ---
 API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM")
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash')
+model = genai.GenerativeModel("gemini-2.0-flash")
 
-# --- Your emotion list (unchanged) ---
+# --- Emotion list ---
 emotion_list = [
     "admiration","amusement","anger","annoyance","approval","caring",
     "confusion","curiosity","desire","disappointment","disapproval",
@@ -19,41 +23,71 @@ emotion_list = [
 def infer_moods(description: str, k: int = 3, emotions=emotion_list) -> list:
     prompt = f"""Given the following movie description, list the possible moods or emotional tones it conveys. \
 Strictly output the top {k} most applicable moods from {emotions} list. \
-Return the answer as a Python list of mood words.
-
-Movie Description: "{description}"
-
-Note that I only want the moods and not the reasons or any other information. \
-Do not include any additional text or explanation. \
-Just provide the list of moods in a Python list format, like this: ['mood1', 'mood2', 'mood3'].
-"""
+Return the answer as a JSON array of mood words (e.g., [\"mood1\", \"mood2\", \"mood3\"]).\n\nMovie Description: \"{description}\""""
     response = model.generate_content(prompt)
-    # The API returns text like "['joy', 'excitement', 'surprise']"
-    # We can safely use eval() here because we fully control the format.
-    return eval(response.text.strip())
+    raw = response.text.strip()
+    # Extract array substring
+    match = re.search(r"\[.*\]", raw)
+    if match:
+        raw = match.group(0)
+    try:
+        moods = ast.literal_eval(raw)
+        if not isinstance(moods, list):
+            raise ValueError("Parsed output is not a list")
+    except Exception as e:
+        st.error(f"Failed to parse moods: {e}")
+        return []
+    return moods
 
-# --- Step 1: Record 20 seconds of audio ---
-r = sr.Recognizer()
-with sr.Microphone() as mic:
-    print("🎤 Please speak your movie description now (recording for 20 seconds)...")
-    r.adjust_for_ambient_noise(mic, duration=1)
-    audio_data = r.record(mic, duration=10)
-    print("⏹️ Recording complete, transcribing…")
+# --- Streamlit UI ---
+st.set_page_config(page_title="MoodFlixx Voice Interface", layout="wide")
+st.title("🎬 MoodFlixx Voice-Based Mood Analyzer")
+st.markdown("Speak a movie description and discover its emotional tones!")
 
-# --- Step 2: Transcribe to text ---
-try:
-    description_text = r.recognize_google(audio_data)
-    print("📝 Transcribed description:", description_text)
-except sr.UnknownValueError:
-    print("⚠️ Google Speech Recognition could not understand audio")
-    exit(1)
-except sr.RequestError as e:
-    print(f"⚠️ Could not request results from Google Speech Recognition service; {e}")
-    exit(1)
+# Sidebar for recording duration
+with st.sidebar:
+    st.header("Settings")
+    duration = st.slider("Recording Duration (seconds)", min_value=5, max_value=60, value=20, step=5)
+    st.markdown("Click **Start Recording** to begin.")
 
-# --- Step 3: Infer moods via Gemini ---
-try:
-    moods = infer_moods(description_text)
-    print("🎬 Inferred moods:", moods)
-except Exception as e:
-    print("❌ Error calling Gemini API:", e)
+# Main: recording and processing
+action = st.button("▶️ Start Recording")
+if action:
+    r = sr.Recognizer()
+    chunks = []
+    timer_placeholder = st.empty()
+    with sr.Microphone() as mic:
+        r.adjust_for_ambient_noise(mic, duration=1)
+        for sec in range(duration, 0, -1):
+            timer_placeholder.info(f"🔴 Recording... {sec} seconds left")
+            chunk = r.record(mic, duration=1)
+            chunks.append(chunk)
+        timer_placeholder.success("⏹️ Recording complete!")
+
+    # Combine audio chunks
+    sample_rate = chunks[0].sample_rate
+    sample_width = chunks[0].sample_width
+    raw_data = b"".join(chunk.get_raw_data() for chunk in chunks)
+    full_audio = sr.AudioData(raw_data, sample_rate, sample_width)
+
+    # Transcribe
+    try:
+        with st.spinner("📝 Transcribing..."):
+            transcription = r.recognize_google(full_audio)
+        st.subheader("📝 Transcription")
+        st.write(transcription)
+    except Exception as e:
+        st.error(f"Transcription Error: {e}")
+        st.stop()
+
+    # Infer moods
+    with st.spinner("🤖 Inferring moods..."):
+        moods = infer_moods(transcription)
+    st.subheader("🎭 Predicted Moods")
+    if moods:
+        st.write(moods)
+        st.balloons()
+    else:
+        st.warning("No moods could be parsed from the AI response.")
+
+# Instructions
