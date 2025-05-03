@@ -5,9 +5,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough # Import RunnablePassthrough
 
 # Ensure you have set your API key as an environment variable
-# export GOOGLE_API_KEY="YOUR_API_KEY"
 # Or you can set it directly in the code (less recommended for security)
-# os.environ["GOOGLE_API_KEY"] = "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM" # Replace with your actual key
+os.environ["GOOGLE_API_KEY"] = "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM" # Replace with your actual key
 
 def get_preference_response_langchain(time: int, mood: str, language: str):
     """
