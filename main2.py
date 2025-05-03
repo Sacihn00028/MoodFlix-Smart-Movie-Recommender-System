@@ -101,7 +101,6 @@ def main():
             "genre": genre,
         }
         user_data["mood"] = infer_user_mood(user_data)
-        # st.write(f'Inferred Moods: {user_data["mood"]}')
         recommendations_from_KG = run_KG_Fetch(user_data, 3)
         similarity_recommendations_from_KG = []
         for recond in recommendations_from_KG:
