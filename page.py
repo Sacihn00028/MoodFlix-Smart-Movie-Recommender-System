@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 # Load secrets - Ensure these are set in Streamlit Cloud or your .streamlit/secrets.toml
 GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI") # e.g., "http://localhost:8501" for local dev
+REDIRECT_URI = st.secrets.get("REDIRECT_URI")  # e.g., "http://localhost:8501" for local dev
 
 # Basic check if secrets are loaded
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not REDIRECT_URI:
@@ -262,7 +262,38 @@ def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
 # --------------------
 
 def main():
-    st.set_page_config(page_title="Movie Mood Recommender", layout="wide")
+    st.set_page_config(page_title="Movie Mood Recommender", page_icon="🎥", layout="wide")
+    # Apply custom CSS for cinematic theme and improved UI
+    st.markdown(
+        '''
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=Roboto&display=swap');
+            .stApp { background-color: #121212; color: #f0f0f0; }
+            html, body { scroll-behavior: smooth; }
+            html, body, [data-testid="stAppViewContainer"] { font-family: 'Roboto', sans-serif; }
+            h1, h2, h3, h4, h5, h6, .streamlit-expanderHeader { font-family: 'Oswald', sans-serif; }
+            [data-testid="stSidebar"] { background-color: #1E1E1E; color: #f0f0f0; }
+            [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4 { font-family: 'Oswald', sans-serif; color: #fff; }
+            .streamlit-expanderHeader { background-color: #333; color: #f0f0f0; }
+            .streamlit-expanderContent { background-color: #1f1f1f; color: #f0f0f0; }
+            .card { background-color: #262626; padding: 15px; border-radius: 8px; border: 1px solid #444; box-shadow: 0 4px 6px rgba(0,0,0,0.5); margin-bottom: 15px; }
+            .card:hover { box-shadow: 0 6px 8px rgba(0,0,0,0.7); }
+            .card-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; color: #fff; font-family: 'Oswald', sans-serif; }
+            .card-meta { font-size: 0.9rem; color: #ccc; margin-bottom: 5px; }
+            .card-description { font-size: 0.9rem; color: #aaa; }
+            details summary { cursor: pointer; }
+            details summary::-webkit-details-marker { display: none; }
+            details summary:after { content: ' ▼'; font-size: 0.8em; color: #ccc; }
+            details[open] summary:after { content: ' ▲'; font-size: 0.8em; color: #ccc; }
+            [data-testid="stForm"] { background-color: #1f1f1f; padding: 15px; border: 1px solid #444; border-radius: 8px; }
+            input[type="text"] { background-color: #333; color: #fff; border: 1px solid #555; }
+            input[type="text"]::placeholder { color: #bbb; }
+            div.stButton > button { border-radius: 5px; background-color: #444; color: #fff; border: 1px solid #555; padding: 0.4rem 0.8rem; }
+            div.stButton > button:hover { background-color: #555; border-color: #666; }
+        </style>
+        ''',
+        unsafe_allow_html=True
+    )
     st.title("🎬 Movie Mood Recommender")
 
     # --- Authentication Flow ---
@@ -273,18 +304,18 @@ def main():
         st.stop()
 
     # --- Logged In View ---
-    st.sidebar.header(f"Welcome, {user.get('name', user.get('email'))}!")
-    st.sidebar.write(f"Logged in as: {user.get('email')}")
+    st.sidebar.header(f"👋 Welcome, {user.get('name', user.get('email'))}!")
+    st.sidebar.write(f"Logged in as: 📧 {user.get('email')}")
     handle_logout()
 
     st.markdown("---")
 
     # --- Watch History Display Section ---
-    with st.expander("View/Manage Your Watch History"):
+    with st.expander("🍿 View/Manage Your Watch History"):
         if not st.session_state.watch_history:
             st.info("Your watch history is empty. Add movies from recommendations to build your history.")
         else:
-            st.subheader("Your Watched Movies")
+            st.subheader("📽️ Your Watched Movies")
             num_history_cols = 4
             history_cols = st.columns(num_history_cols)
             
@@ -292,17 +323,18 @@ def main():
                 col_index = idx % num_history_cols
                 with history_cols[col_index]:
                     st.markdown(
+                    # Display each watched movie in a styled card
                         f"""
-                        <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; margin-bottom: 10px; height: 250px; overflow-y: auto;">
-                            <p style="font-weight: bold;">{movie.get('movie_name', 'N/A')} ({movie.get('year', 'N/A')})</p>
-                            <p style="font-size: small;"><strong>Genre:</strong> {movie.get('genre', 'N/A')}</p>
-                            <p style="font-size: small;"><strong>Rating:</strong> {movie.get('imdbRating', 'N/A')} ⭐</p>
-                            <details style="font-size: small;"><summary>Description</summary>{movie.get('description', 'N/A')}</details>
+                        <div class="card">
+                            <p class="card-title">{movie.get('movie_name', 'N/A')} ({movie.get('year', 'N/A')})</p>
+                            <p class="card-meta"><strong>Genre:</strong> {movie.get('genre', 'N/A')}</p>
+                            <p class="card-meta"><strong>Rating:</strong> {movie.get('imdbRating', 'N/A')} ⭐</p>
+                            <details><summary>Description</summary><div class="card-description">{movie.get('description', 'N/A')}</div></details>
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
-                    if st.button("Remove", key=f"remove_{movie['id']}_{idx}"):
+                    if st.button("🗑️ Remove", key=f"remove_{movie['id']}_{idx}"):
                         try:
                             remove_movie_from_watch_history(user['email'], movie['id'])
                             st.session_state.watch_history.pop(idx)
@@ -316,7 +348,7 @@ def main():
     st.markdown("---")
 
     # --- Mood Questionnaire and Recommendations Section ---
-    st.subheader("Get Movie Recommendations Based on Your Mood")
+    st.subheader("🎭 Get Movie Recommendations Based on Your Mood")
     st.caption("Answer these questions to help us find movies matching your mood.")
 
     mood_form = st.form(key="mood_form")
@@ -334,7 +366,7 @@ def main():
             ans = st.text_input(question, key=f"q{i+1}")
             mood_answers.append(ans.strip() if ans else "")
 
-        submit_button = st.form_submit_button(label="Find Movies!")
+        submit_button = st.form_submit_button(label="🎥 Find Movies!")
 
     if submit_button:
         st.session_state.added_movie_ids = set()
@@ -352,7 +384,7 @@ def main():
         movies = st.session_state.recommendations
         st.markdown("---")
         if movies:
-            st.subheader("Here are some movies tailored to your mood:")
+            st.subheader("🎯 Here are some movies tailored to your mood:")
 
             history_ids = {m.get('id') for m in st.session_state.watch_history if m.get('id')}
             unwatched_movies = [m for m in movies if m.get('id') not in history_ids]
@@ -378,11 +410,12 @@ def main():
                             st.warning(f"Recommendation {idx+1} missing 'id'. Skipping.")
                             continue
 
-                        st.markdown(f"**{movie.get('title', 'N/A')}** ({movie.get('year', 'N/A')})")
+                        # Styled display for recommended movie title
+                        st.markdown(f"<div class='card-title'>{movie.get('title', 'N/A')} ({movie.get('year', 'N/A')})</div>", unsafe_allow_html=True)
                         if movie.get('description'):
-                            st.write(movie['description'])
+                            st.markdown(f"<div class='card-description'><em>{movie['description']}</em></div>", unsafe_allow_html=True)
                         if movie.get('imdbRating'):
-                            st.caption(f"IMDb Rating: {movie.get('imdbRating')} ⭐ ({movie.get('genre', 'N/A')})")
+                            st.markdown(f"<div class='card-meta'>IMDb Rating: {movie.get('imdbRating')} ⭐ ({movie.get('genre', 'N/A')})</div>", unsafe_allow_html=True)
 
                         # Initialize checkbox state if not exists
                         checkbox_key = f"add_{movie_identifier}_{idx}"  # Make the key unique
@@ -392,20 +425,20 @@ def main():
                         # Check if movie is already in watch history
                         is_in_history = any(m['id'] == movie_identifier for m in st.session_state.watch_history)
                         
-                        # Create checkbox
-                        checkbox_value = st.checkbox(
-                            "✓ In Watch History" if is_in_history else "Add to Watch History",
+                        # Create checkbox with improved labels
+                        st.checkbox(
+                            "✓ In Watch History" if is_in_history else "➕ Add to Watch History",
                             key=checkbox_key,
                             value=st.session_state[checkbox_key]
                         )
 
-                        if checkbox_value:
+                        if st.session_state.get(checkbox_key, False):
                             current_selections.add(movie_identifier)
                         else:
                             current_selections.discard(movie_identifier)
 
-                # Review Button
-                review_selections = st.button("Review Selections and Add to Watch History")
+                # Review/Finalize Button
+                review_selections = st.button("✅ Add Selected to Watch History")
 
                 if review_selections:
                     added_count = 0
@@ -413,7 +446,7 @@ def main():
                     for idx, movie in enumerate(filtered_movies):
                         movie_identifier = movie.get('id')
                         checkbox_key = f"add_{movie_identifier}_{idx}"
-                        if st.session_state.get(checkbox_key, False):  # Use .get() to avoid KeyError
+                        if st.session_state.get(checkbox_key, False):
                             movie_to_add = {
                                 'id': movie_identifier,
                                 'movie_name': movie.get('title'),
