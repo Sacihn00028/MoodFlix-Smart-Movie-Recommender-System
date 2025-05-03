@@ -1,16 +1,39 @@
-## This file will do the following:
-## 1. Query Each of the knowledge graphs for the top-k recommendations matching the desired characteristics
-## 2. using that gotten knowledge, pass to llm a very good prompt with constraint output to get top recommendations
 from neo4j import GraphDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 from langchain_groq import ChatGroq
-from typing import List
+from typing import List, Union
 import os
 from pydantic import BaseModel, Field
-from typing import Union
+from langchain_chroma import Chroma
 import json
+from langchain_huggingface import HuggingFaceEmbeddings
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+def Get_knowledge_Base_Lang():
+    vector_store = Chroma(
+        collection_name="Knowledge_Base_Movies_with_lang",
+        embedding_function=embeddings,
+        persist_directory="./kb_db",  
+    )
+    return vector_store
+class MovieOut(BaseModel):
+    title: str = Field(..., description="Movie title")
+    year: int = Field(..., description="Release year")
+    genre: str = Field(..., description="Genre(s)")
+    director: str = Field(..., description="Director")
+    runtime: int = Field(..., description="Runtime in minutes")
+    rating: float = Field(..., description="Movie rating")
+    overview: str = Field(..., description="Plot summary of the movie")
+
+class TopKMovies(BaseModel):
+    recommendations: List[MovieOut]
+
+class DomainMatch(BaseModel):
+    cls: str = Field(..., description="The single best-matching class from the domain")
+vs = Get_knowledge_Base_Lang()
+GENRE_NAMES = ["Action","Adventure", "Fantasy","Science Fiction","Crime","Drama","Thriller","Animation","Family","Western","Comedy","Romance","Horror","Mystery","History","War","Music","Documentary","Foreign","TV","Movie",]
+LANGUAGE_NAMES = [ "English", "Japanese", "French", "Chinese", "Spanish","German","Russian","Korean","Telugu", "Italian","Dutch", "Tamil","Swedish", "Thai","Danish","Unknown","Hungarian","Czech","Portuguese", "Icelandic","Turkish","Norwegian Bokmål","Afrikaans","Polish","Hebrew", "Arabic","Vietnamese","Kyrgyz","Indonesian","Romanian","Persian","Norwegian","Slovenian","Pashto","Greek","Hindi",]
+## MOODS To be Done
 candidate_moods = ["Happy", "Sad", "Thrilling", "Romantic", "Adventurous", "Dark", "Inspiring"]
 uri = "neo4j+s://0d57704b.databases.neo4j.io"
 driver = GraphDatabase.driver(uri, auth=("neo4j", "5yPsvhzqDCZYx2s08eS3GvGLPM33v32IaQp-jEG3CdM"))
@@ -37,224 +60,213 @@ llm = ChatGroq(
     max_retries=2,
 )
 
-def get_top_movies_by_language(language_name, k=10):
-    """
-    Get top k movies for a given language, sorted by vote count
-    
-    Args:
-        language_name (str): Full language name (e.g., 'English', 'Japanese')
-        k (int): Number of movies to return
-    """
+recommender_template = PromptTemplate.from_template("""
+You are a top-notch movie recommender.
+
+User Preferences (JSON):
+{user_data}
+
+Candidate Movies (JSON array):
+{candidates}
+
+From these, choose the best {k} movies that most closely match the user's preferences.
+Return your answer *only* in this JSON format:
+
+```json
+{{
+  "recommendations": [
+    {{
+      "title": "…",
+      "year": 2020,
+      "genre": "Drama, Thriller",
+      "director": "Name",
+      "runtime": 120,
+      "rating": 8.3,
+      "overview": Plot summary of the movie
+    }}
+    // up to {k} entries
+  ]
+}}```
+""".strip())
+def get_top_movies_by_language(language_name: str, k: int = 10, max_runtime: Union[int,None] = None) -> List[dict]:
     with driver.session() as session:
-        query = """
+        base = """
         MATCH (l:Language {name: $language_name})-[:IN_LANGUAGE]->(m:Movie)
-        RETURN m.title as title,
-               m.year as year,
-               m.vote_count as votes,
-               m.runtime as runtime,
-               m.overview as overview
+        WHERE m.vote_count IS NOT NULL
+        """
+        if max_runtime is not None:
+            base += " AND m.runtime <= $max_runtime"
+        base += """
+        RETURN m.title AS title,
+               m.year AS year,
+               m.vote_count AS votes,
+               m.runtime AS runtime,
+               m.overview AS overview
         ORDER BY m.vote_count DESC
         LIMIT $limit
         """
-        result = session.run(query, language_name=language_name, limit=k)
-        movies = []
-        for record in result:
-            movies.append({
-                'title': record['title'],
-                'year': record['year'],
-                'votes': record['votes'],
-                'runtime': record['runtime'],
-                'overview': record['overview']
-            })
-        return movies
-def get_movies_by_director(director_name, k=10):
-    """
-    Get movies directed by a specific director, sorted by vote count
-    Args:
-        director_name (str): Full name of the director
-        k (int): Number of movies to return
-    """
+        result = session.run(base,
+                             language_name=language_name,
+                             max_runtime=max_runtime,
+                             limit=k)
+        return [dict(record) for record in result]
+
+def get_movies_by_director(director_name: str, k: int = 10, max_runtime: Union[int,None] = None) -> List[dict]:
     with driver.session() as session:
-        query = """
+        base = """
         MATCH (d:Director {name: $director_name})-[:DIRECTED]->(m:Movie)
-        RETURN m.title as title,
-               m.year as year,
-               m.vote_count as votes,
-               m.runtime as runtime,
-               m.overview as overview,
-               m.rating as rating
+        WHERE m.vote_count IS NOT NULL
+        """
+        if max_runtime is not None:
+            base += " AND m.runtime <= $max_runtime"
+        base += """
+        RETURN m.title AS title,
+               m.year AS year,
+               m.vote_count AS votes,
+               m.runtime AS runtime,
+               m.overview AS overview,
+               m.rating AS rating
         ORDER BY m.vote_count DESC
         LIMIT $limit
         """
-        result = session.run(query, director_name=director_name, limit=k)
-        movies = []
-        for record in result:
-            movies.append({
-                'title': record['title'],
-                'year': record['year'],
-                'votes': record['votes'],
-                'runtime': record['runtime'],
-                'overview': record['overview'],
-                'rating': record['rating']
-            })
-        return movies
-# def get_top_k_movies_on_mood(mood, k):
-#     query = f"""
-#     MATCH (mo:Mood {{name: $mood}})-[:RECOMMENDS]->(m:Movie)
-#     RETURN m.title AS title, m.director AS director, m.year AS year, m.rating AS rating
-#     ORDER BY m.rating DESC
-#     LIMIT $k
-#     """
-#     with driver.session() as session:
-#         result = session.run(query, mood=mood, k=k)
-#         movies = result.data()
-#         return movies
+        result = session.run(base,
+                             director_name=director_name,
+                             max_runtime=max_runtime,
+                             limit=k)
+        return [dict(record) for record in result]
+
+def get_movies_by_genre(genre_name: str, k: int = 10, max_runtime: Union[int,None] = None) -> List[dict]:
+    with driver.session() as session:
+        base = """
+        MATCH (m:Movie)-[:HAS_GENRE]->(g:Genre {name: $genre_name})
+        WHERE m.vote_count IS NOT NULL
+        """
+        if max_runtime is not None:
+            base += " AND m.runtime <= $max_runtime"
+        base += """
+        RETURN m.title AS title,
+               m.year AS year,
+               m.vote_count AS votes,
+               m.runtime AS runtime,
+               m.overview AS overview,
+               m.rating AS rating
+        ORDER BY m.vote_count DESC, m.rating DESC
+        LIMIT $limit
+        """
+        result = session.run(base,
+                             genre_name=genre_name,
+                             max_runtime=max_runtime,
+                             limit=k)
+        return [dict(record) for record in result]
 
 
-# def get_top_k_movies_less_than_runtime(runtime, k):
-#     query = """
-#     MATCH (m:Movie)
-#     WHERE m.runtime <= $runtime
-#     RETURN m.title AS title, m.director AS director, m.year AS year, m.rating AS rating
-#     ORDER BY m.runtime ASC
-#     LIMIT $k
-#     """
-#     with driver.session() as session:
-#         result = session.run(query, runtime=runtime, k=k)
-#         return result.data()
-
-# def get_movies_by_director_and_runtime(director, runtime, k):
-#     query = """
-#     MATCH (d:Director {name: $director})-[:DIRECTED]->(m:Movie)
-#     WHERE m.runtime <= $runtime
-#     RETURN m.title AS title, m.director AS director, m.year AS year, m.rating AS rating
-#     ORDER BY m.runtime ASC
-#     LIMIT $k
-#     """
-#     with driver.session() as session:
-#         result = session.run(query, director=director, runtime=runtime, k=k)
-#         return result.data()
-# def get_top_k_movies_by_rating(min_rating, k):
-#     query = """
-#     MATCH (m:Movie)
-#     WHERE m.rating >= $min_rating
-#     RETURN m.title AS title, m.director AS director, m.year AS year, m.rating AS rating
-#     ORDER BY m.rating DESC
-#     LIMIT $k
-#     """
-#     with driver.session() as session:
-#         result = session.run(query, min_rating=min_rating, k=k)
-#         return result.data()
-
-
-def gettopK(cls, spec, k):
-    if(cls == "mood"):
-        mood_movies = get_top_k_movies_on_mood(spec["mood"], k)
-        return mood_movies
-    if(cls == "runtime"):
-        runtime_movies = get_top_k_movies_less_than_runtime(int(spec["runtime"]), k)
-        return runtime_movies
-    if(cls == "director"):
-        director_movies = get_movies_by_director_and_runtime(spec["director"], int(spec["runtime"]), k)
-        return director_movies
-    if(cls == "rating"):
-        rating_movies = get_top_k_movies_by_rating(float(spec["rating"]), k)
-        return rating_movies
-
-
-
-
-
-def dict_to_prompt(spec: dict) -> str:
-    """
-    Convert a spec dict into a natural-language prompt sentence.
-    Fields with value "any" will be skipped or phrased generically.
-    """
-    parts = []
-    mood = spec.get("mood", "any")
-    if mood != "any":
-        parts.append(f"a {mood.lower()} movie")
-    else:
-        parts.append("any kind of movie")
-    runtime = spec.get("runtime", "any")
-    if isinstance(runtime, int):
-        parts.append(f"up to {runtime} minutes long")
-    elif runtime != "any":
-        parts.append(f"up to {int(runtime)} minutes long")
-    director = spec.get("director", "any")
-    if director != "any":
-        parts.append(f"directed by {director}")
-    rating = spec.get("rating", "any")
-    if isinstance(rating, (int, float)):
-        parts.append(f"with rating ≥{rating}")
-    elif rating != "any":
-        parts.append(f"with rating ≥{float(rating)}")
-
-    # join into one sentence
-    prompt = "I want " + ", ".join(parts) + "."
-    return prompt
-def parse_llm_response(response_content: str) -> dict:
-    try:
-        cleaned_response = response_content.strip('```json\n').strip('```')
-        parsed_data = json.loads(cleaned_response)
-        prefs = MoviePreferences(**parsed_data)
-        return prefs.model_dump()
-    except Exception as e:
-        return {
-            "mood": "any",
-            "runtime": "any",
-            "director": "any",
-            "rating": "any"
-        }
-
-def Enhance_User_Prompt(user_input: str) -> dict:
-    prompt = prompt_template.invoke({
-        "user_input": user_input,
-        "candidate_moods": candidate_moods
+def match_into_domain(inp: str, domain: list[str]) -> str:
+    template = """
+        You have a domain of possible classes: {domain_list}.
+        A user gave the input: "{user_text}".
+        Match the input to the single semantically closest class in the domain.
+        Return the result *only* in this JSON format:
+        ```json
+        {{ "match": "CLASS_NAME" }}```
+        where CLASS_NAME is exactly one of the domain entries.
+    """.strip()
+    match_prompt = PromptTemplate.from_template(template.strip())
+    prompt = match_prompt.invoke({
+        "domain_list": ", ".join(domain),
+        "user_text": inp
     })
-    response = llm.invoke(prompt)
-    try:
-        return parse_llm_response(response.content)
-    except Exception as e:
-        return parse_llm_response(response.content)
+    structured = llm.with_structured_output(DomainMatch)
+    response = structured.invoke(prompt)
+    for line in response.cls.strip().splitlines():
+        if line:
+            return line.strip()
+    return ""
+def handle_Director(director, runtime, k):
+    if(director):
+        direc = get_movies_by_director(director, int(k),runtime )
+        return director
+    else:
+        return []
 
 
-def run_KG_Fetch(user_input, k):
-    string = dict_to_prompt(user_input)
-    enhanced = Enhance_User_Prompt(string)
-    recommendations = []
-    if(enhanced['mood'] != 'any'):
-        mood = gettopK("mood", enhanced, k)
-        for i in mood:
-            recommendations.append(i)
-    if(enhanced['runtime'] != "any"):
-        runtime = gettopK("runtime", enhanced, k)
-        for i in runtime:
-            recommendations.append(i)
-    if(enhanced['director'] != "any"):
-        direc = gettopK('director', enhanced, k)
-        for i in direc:
-            recommendations.append(i)
-    if(enhanced['rating'] != "any"):
-        rating = gettopK("rating", enhanced, k)
-        for i in rating:
-            recommendations.append(i)
-    return recommendations
+def handle_Genre(genre, runtime, k):
+    if(genre):
+        genre = match_into_domain(genre, GENRE_NAMES)
+        gen = get_movies_by_genre(genre, int(k), runtime)
+        return gen
+    else:
+        return []
+    
+def handle_language(lang, runtime, k):
+    if(lang):
+        lg = match_into_domain(lang, LANGUAGE_NAMES)
+        lg = get_top_movies_by_language(lang, int(k),runtime)
+        return lg
+    else:
+        return []
 
-def KG_pipeline(user_input, k):
-    recommendations_from_KG = run_KG_Fetch(user_input, k)
-    return recommendations_from_KG
+def fetch_data_from_KG(user_data, k):
+    prompt = []
+    if(user_data.get("language", None)):
+        language_movies = handle_language(user_data.get("language", None), user_data.get("runtime", None), k)
+        prompt.extend(language_movies)
+    if(user_data.get("genre",None)):
+        genre_movies  = handle_Genre(user_data.get("genre",None), user_data.get("runtime", None), k)
+        prompt.extend(genre_movies)
+    if(user_data.get("director",None)):
+        direc_movies = handle_Director(user_data.get("director",None),user_data.get("runtime",None), k)
+        prompt.extend(direc_movies)
+    ## To be done when mood is done
+    proprompt = recommender_template.invoke({
+        "user_data":user_data,
+        "candidates":prompt,
+        "k":k
+    })
+    structured = llm.with_structured_output(TopKMovies)
+    resp = structured.invoke(proprompt)
+    result = []
+    for rec in resp.recommendations:
+        query = (
+            f"{rec.title} ({rec.year}), genre: {rec.genre}, "
+            f"directed by {rec.director}, {rec.runtime}min, rating {rec.rating}"
+            f"overview {rec.overview}"
+        )
+        result.append(query)
+    return result
+def get_movie_from_recon(recommendations:List[MovieOut]):
+    docs = []
+    for rec in recommendations:
+        query = (
+            f"{rec.title} ({rec.year}), genre: {rec.genre}, "
+            f"directed by {rec.director}, {rec.runtime}min, rating {rec.rating}"
+            f"overview {rec.overview}"
+        )
+        results = vs.similarity_search(query, k=2)
+        if results:
+            docs.extend(results)
+    return docs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__=="__main__":
-    spec = {"mood":"Death", "runtime":"210", "rating":"7.8"}
-    # print(gettopK("mood", spec, 5))
-    # print(gettopK("runtime", spec, 5))
-    # print(gettopK("director", spec, 5))
-    # print(gettopK("rating", spec, 5))
-    # stri = dict_to_prompt(spec)
-    # print(Enhance_User_Prompt(stri))
-    print(run_KG_Fetch(spec, 5))
+    spec = {"mood":"Dark","runtime":"120","director":"Christopher Nolan","genre":"Sci-Fi","language":"English"}
+    # print(get_movies_by_genre("Happy", 5, 350))
+    print(fetch_data_from_KG(spec, 5))
     from neo4j._sync.driver import Driver as _Neo4jDriver
     def _noop_del(self):
         return None
