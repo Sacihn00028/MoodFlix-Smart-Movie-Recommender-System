@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from langchain_chroma import Chroma
 import json
 from langchain_huggingface import HuggingFaceEmbeddings
+import numpy as np
+os.environ["GOOGLE_API_KEY"] = "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM"
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 
 def Get_knowledge_Base_Lang():
@@ -33,14 +35,13 @@ class TopKMovies(BaseModel):
 class DomainMatch(BaseModel):
     cls: str = Field(..., description="The single best-matching class from the domain")
 vs = Get_knowledge_Base_Lang()
+MOODS = ["Happy", "Sad", "Thrilling", "Romantic", "Adventurous", "Dark", "Inspiring"]
 GENRE_NAMES = ["Action","Adventure", "Fantasy","Science Fiction","Crime","Drama","Thriller","Animation","Family","Western","Comedy","Romance","Horror","Mystery","History","War","Music","Documentary","Foreign","TV","Movie",]
 LANGUAGE_NAMES = [ "English", "Japanese", "French", "Chinese", "Spanish","German","Russian","Korean","Telugu", "Italian","Dutch", "Tamil","Swedish", "Thai","Danish","Unknown","Hungarian","Czech","Portuguese", "Icelandic","Turkish","Norwegian Bokmål","Afrikaans","Polish","Hebrew", "Arabic","Vietnamese","Kyrgyz","Indonesian","Romanian","Persian","Norwegian","Slovenian","Pashto","Greek","Hindi",]
-## MOODS To be Done
-candidate_moods = ["Happy", "Sad", "Thrilling", "Romantic", "Adventurous", "Dark", "Inspiring"]
 uri = "neo4j+s://0d57704b.databases.neo4j.io"
 driver = GraphDatabase.driver(uri, auth=("neo4j", "5yPsvhzqDCZYx2s08eS3GvGLPM33v32IaQp-jEG3CdM"))
 class MoviePreferences(BaseModel):
-    mood: str = Field(description="User's desired mood. Choose from: " + ", ".join(candidate_moods))
+    mood: str = Field(description="User's desired mood. Choose from: " + ", ".join(MOODS))
     runtime: Union[int, str] = Field(description="Maximum runtime in minutes or 'any'")
     director: str = Field(description="Preferred director or 'any'")
     rating: Union[float, str] = Field(description="Minimum rating or 'any'")
@@ -53,14 +54,14 @@ Return a JSON object with the following fields:
 - director: Preferred director, or 'any'
 - rating: Minimum rating (e.g., 8.0), or 'any'
 """.strip())
-
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=2,
-)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+# llm = ChatGroq(
+#     model="llama-3.1-8b-instant",
+#     temperature=0,
+#     max_tokens=None,
+#     timeout=None,
+#     max_retries=2,
+# )
 
 recommender_template = PromptTemplate.from_template("""
 You are a top-notch movie recommender.
@@ -112,6 +113,52 @@ def get_top_movies_by_language(language_name: str, k: int = 10, max_runtime: Uni
                              max_runtime=max_runtime,
                              limit=k)
         return [dict(record) for record in result]
+
+
+
+
+def get_movies_by_mood(mood: str, k: int = 10, language: str = None) -> List[dict]:
+    with driver.session() as session:
+        if language:
+            query = """
+            MATCH (mo:Mood {name: $mood})-[:RECOMMENDS]->(m:Movie)
+            MATCH (l:Language {name: $language})-[:IN_LANGUAGE]->(m)
+            RETURN m.title AS title,
+                   m.year AS year,
+                   m.vote_count AS votes,
+                   m.runtime AS runtime,
+                   m.overview AS overview,
+                   m.rating AS rating
+            ORDER BY m.vote_count DESC
+            LIMIT $limit
+            """
+            params = {"mood": mood, "language": language, "limit": k}
+        else:
+            query = """
+            MATCH (mo:Mood {name: $mood})-[:RECOMMENDS]->(m:Movie)
+            RETURN m.title AS title,
+                   m.year AS year,
+                   m.vote_count AS votes,
+                   m.runtime AS runtime,
+                   m.overview AS overview,
+                   m.rating AS rating
+            ORDER BY m.vote_count DESC
+            LIMIT $limit
+            """
+            params = {"mood": mood, "limit": k}
+        result = session.run(query, **params)
+        movies = []
+        for record in result:
+            movies.append({
+                "title":    record["title"],
+                "year":     record["year"],
+                "votes":    record["votes"],
+                "runtime":  record["runtime"],
+                "overview": record["overview"],
+                "rating":   record["rating"],
+            })
+        return movies
+
 
 def get_movies_by_director(director_name: str, k: int = 10, max_runtime: Union[int,None] = None) -> List[dict]:
     with driver.session() as session:
@@ -168,8 +215,10 @@ def match_into_domain(inp: str, domain: list[str]) -> str:
         A user gave the input: "{user_text}".
         Match the input to the single semantically closest class in the domain.
         Return the result *only* in this JSON format:
-        ```json
-        {{ "match": "CLASS_NAME" }}```
+        
+json
+        {{ "match": "CLASS_NAME" }}
+
         where CLASS_NAME is exactly one of the domain entries.
     """.strip()
     match_prompt = PromptTemplate.from_template(template.strip())
@@ -183,6 +232,27 @@ def match_into_domain(inp: str, domain: list[str]) -> str:
         if line:
             return line.strip()
     return ""
+
+# def match_into_domain(inp: str, domain: list[str]) -> str:
+#     """
+#     Embed each domain entry and the input, then return the domain string
+#     whose embedding has highest cosine similarity with the input embedding.
+#     """
+#     # 1. Embed domain entries
+#     domain_embs = embeddings.embed_documents(domain)  # List[List[float]]
+
+#     # 2. Embed the input query
+#     query_emb = embeddings.embed_query(inp)           # List[float]
+#     # 3. Convert to numpy arrays
+#     D = np.vstack(domain_embs)   # shape (n_domain, dim)
+#     q = np.array(query_emb)      # shape (dim,)
+#     # 4. Normalize for cosine similarity
+#     D_norm = D / np.linalg.norm(D, axis=1, keepdims=True)
+#     q_norm = q / np.linalg.norm(q)
+#     # 5. Compute cosine similarities and pick best
+#     sims = D_norm.dot(q_norm)    # shape (n_domain,)
+#     best_idx = int(np.argmax(sims))
+#     return domain[best_idx]
 def handle_Director(director, runtime, k):
     if(director):
         direc = get_movies_by_director(director, int(k),runtime )
@@ -190,6 +260,11 @@ def handle_Director(director, runtime, k):
     else:
         return []
 
+def handle_Mood(mood, language, k):
+    if(mood):
+        mud = get_movies_by_mood(mood,k, language )
+        return mud
+    else:return []
 
 def handle_Genre(genre, runtime, k):
     if(genre):
@@ -218,7 +293,9 @@ def fetch_data_from_KG(user_data, k):
     if(user_data.get("director",None)):
         direc_movies = handle_Director(user_data.get("director",None),user_data.get("runtime",None), k)
         prompt.extend(direc_movies)
-    ## To be done when mood is done
+    if(user_data.get("mood",None)):
+        direc_movies = handle_Mood(user_data.get("mood",None),user_data.get("language",None), k)
+        prompt.extend(direc_movies)
     proprompt = recommender_template.invoke({
         "user_data":user_data,
         "candidates":prompt,
@@ -251,7 +328,7 @@ def get_movie_from_recon(recommendations:List[MovieOut]):
 
 
 if __name__=="__main__":
-    spec = {"mood":"Dark","runtime":"120","director":"Christopher Nolan","genre":"Sci-Fi","language":"English"}
+    spec = {"mood":"Dark","runtime":"120","director":"","genre":"Sci-Fi","language":"Hindi"}
     # print(get_movies_by_genre("Happy", 5, 350))
     print(fetch_data_from_KG(spec, 5))
     from neo4j._sync.driver import Driver as _Neo4jDriver
