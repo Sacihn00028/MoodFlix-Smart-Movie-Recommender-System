@@ -1,0 +1,149 @@
+{
+  "metadata": {
+    "created": "2025-05-03 13:14:50",
+    "num_movies": 4,
+    "emotions": {
+      "Primary": [
+        "joy",
+        "sadness",
+        "anger",
+        "fear",
+        "surprise",
+        "disgust"
+      ],
+      "Secondary": [
+        "love",
+        "optimism",
+        "tension",
+        "anticipation",
+        "amusement",
+        "awe",
+        "nostalgia",
+        "interest",
+        "pride",
+        "anxiety"
+      ]
+    }
+  },
+  "movies": {
+    "The Shawshank Redemption_1994": {
+      "title": "The Shawshank Redemption",
+      "year": 1994,
+      "genres": [
+        "Drama"
+      ],
+      "dominant_emotion": "optimism",
+      "emotion_scores": {
+        "anger": 0.1301693085581064,
+        "joy": 0.03756861016154289,
+        "optimism": 0.8702207803726196,
+        "sadness": 0.1343781441450119
+      },
+      "genre_emotions": {
+        "sadness": 0.3333333333333333,
+        "anger": 0.3333333333333333,
+        "anxiety": 0.3333333333333333
+      }
+    },
+    "The Godfather_1972": {
+      "title": "The Godfather",
+      "year": 1972,
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
+      "dominant_emotion": "anger",
+      "emotion_scores": {
+        "anger": 0.3718148827552795,
+        "joy": 0.03417104482650757,
+        "optimism": 0.1265292912721634,
+        "sadness": 0.36569487154483793,
+        "fear": 0.049999999999999996,
+        "anticipation": 0.049999999999999996
+      },
+      "genre_emotions": {
+        "fear": 0.16666666666666666,
+        "anger": 0.3333333333333333,
+        "anticipation": 0.16666666666666666,
+        "sadness": 0.16666666666666666,
+        "anxiety": 0.16666666666666666
+      }
+    },
+    "The Dark Knight_2008": {
+      "title": "The Dark Knight",
+      "year": 2008,
+      "genres": [
+        "Action",
+        "Crime",
+        "Drama"
+      ],
+      "dominant_emotion": "anger",
+      "emotion_scores": {
+        "anger": 0.7050216078758239,
+        "joy": 0.010497366078197956,
+        "optimism": 0.09749288856983185,
+        "sadness": 0.05271859479447206,
+        "anticipation": 0.06666666666666667,
+        "fear": 0.03333333333333333
+      },
+      "genre_emotions": {
+        "excitement": 0.1111111111111111,
+        "anger": 0.3333333333333333,
+        "anticipation": 0.2222222222222222,
+        "fear": 0.1111111111111111,
+        "sadness": 0.1111111111111111,
+        "anxiety": 0.1111111111111111
+      }
+    },
+    "Finding Nemo_2003": {
+      "title": "Finding Nemo",
+      "year": 2003,
+      "genres": [
+        "Animation",
+        "Adventure",
+        "Comedy"
+      ],
+      "dominant_emotion": "joy",
+      "emotion_scores": {
+        "anger": 0.08362331986427307,
+        "joy": 0.35820563435554503,
+        "optimism": 0.2196110039949417,
+        "sadness": 0.3279004991054535,
+        "surprise": 0.06666666666666667,
+        "anticipation": 0.03333333333333333
+      },
+      "genre_emotions": {
+        "joy": 0.3333333333333333,
+        "surprise": 0.2222222222222222,
+        "amusement": 0.2222222222222222,
+        "excitement": 0.1111111111111111,
+        "anticipation": 0.1111111111111111
+      }
+    }
+  },
+  "emotion_to_movies": {
+    "joy": [
+      "Finding Nemo_2003"
+    ],
+    "sadness": [],
+    "anger": [
+      "The Godfather_1972",
+      "The Dark Knight_2008"
+    ],
+    "fear": [],
+    "surprise": [],
+    "disgust": [],
+    "love": [],
+    "optimism": [
+      "The Shawshank Redemption_1994"
+    ],
+    "tension": [],
+    "anticipation": [],
+    "amusement": [],
+    "awe": [],
+    "nostalgia": [],
+    "interest": [],
+    "pride": [],
+    "anxiety": []
+  }
+}
