@@ -14,10 +14,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from MoodHandling.mood_handling_text import infer_user_mood
 from langchain_groq import ChatGroq
-# Initialize vector store once
 vs = Get_Knowledge_Base("E")
-
-# Pydantic models
 class MovieRecommendation(BaseModel):
     title: str = Field(..., description="Movie title")
     year: Union[str, int]
@@ -32,15 +29,15 @@ def build_context_string(movies: List[dict]) -> str:
     context = ""
     for i, movie in enumerate(movies, 1):
         context += f"""
-Movie {i}:
-Title: {movie.get("Title", "N/A")}
-Year: {movie.get("Year", "N/A")}
-Genre: {movie.get("Genre", "N/A")}
-Director: {movie.get("Director", "N/A")}
-Cast: {movie.get("Cast", "N/A")}
-Metascore: {movie.get("Metascore", "N/A")}
-Description: {movie.get("Full Description", "N/A")}
-"""
+            Movie {i}: 
+            Title: {movie.get("Title", "N/A")}
+            Year: {movie.get("Year", "N/A")}
+            Genre: {movie.get("Genre", "N/A")}
+            Director: {movie.get("Director", "N/A")}
+            Cast: {movie.get("Cast", "N/A")}
+            Metascore: {movie.get("Metascore", "N/A")}
+            Description: {movie.get("Full Description", "N/A")}
+        """
     return context
 
 prompt_template = PromptTemplate.from_template(
@@ -145,7 +142,6 @@ def main():
                     }
                     results.append(movie_data)
         combined_movies = similarity_recommendations_from_KG + results
-        os.environ["GOOGLE_API_KEY"] = "AIzaSyApbJXSZW8wV7MBXlBv0W0MA3KGHI_fDp4"
         top_movies = get_top_k_movies_llm(combined_movies, k=5)
         if "error" in top_movies:
             st.error(f"Error: {top_movies['error']}")

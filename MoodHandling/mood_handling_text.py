@@ -1,11 +1,10 @@
+
+## We might try pre-trained model here to reduce calls to LLMs
 import os
 import json
 from typing import List
 from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-os.environ["GOOGLE_API_KEY"] = "AIzaSyCdXWY7Fz7XUcnrEQUnU586BbQqGQLhv6U"  # Replace with actual API key
-
 llm = ChatGroq(
     model="llama-3.1-8b-instant",
     temperature=0,
@@ -13,7 +12,6 @@ llm = ChatGroq(
     timeout=None,
     max_retries=2,
 )
-
 # Define prompt template
 prompt_template = PromptTemplate.from_template(
     """

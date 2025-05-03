@@ -36,7 +36,7 @@ def Load_eng_dataset_into_Chroma():
                 f"Cast: {row['Actors']}\n" \
                 f"Runtime : {row['Runtime (Minutes)']}\n" \
                 f"Rating : {row['Rating']}"
-            metadata = {
+            metadata = { 
                 "movie_name": row['Title'],
                 "year": row['Year'],
                 "genre": row['Genre'],
