@@ -54,7 +54,7 @@ Return a JSON object with the following fields:
 - director: Preferred director, or 'any'
 - rating: Minimum rating (e.g., 8.0), or 'any'
 """.strip())
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7,google_api_key=os.environ["GEMINI_API_KEY"])
 # llm = ChatGroq(
 #     model="llama-3.1-8b-instant",
 #     temperature=0,

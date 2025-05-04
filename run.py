@@ -1,9 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv()
 import streamlit as st
 import json
 import os
 from typing import List, Union
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from KG.KG_pipeline import fetch_data_from_KG
 from CStrings.iterative import iterative_cstring_gen
@@ -23,13 +24,9 @@ import http.client
 import requests
 from langchain.agents import initialize_agent, AgentType
 from langchain.agents import tool
-load_dotenv()
 movies_api_connection = http.client.HTTPSConnection("imdb8.p.rapidapi.com")
 # os.environ["GOOGLE_API_KEY"] = "AIzaSyDcMjk3HAi0bxucSZ5mD_BDwq2WECpCCBA"
 vs = Get_knowledge_Base_Lang()
-load_dotenv()
-vs = Get_knowledge_Base_Lang()
-
 GOOGLE_CLIENT_ID = os.environ['GOOGLE_CLIENT_ID']
 GOOGLE_CLIENT_SECRET = os.environ['GOOGLE_CLIENT_SECRET']
 REDIRECT_URI = os.environ['REDIRECT_URI']
@@ -312,6 +309,13 @@ from langchain.tools import tool
 import json
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+)
 prompt_template = PromptTemplate.from_template(
     """
     You are a movie assistant. Given the following movie candidates and the user data {user_data}, 
@@ -346,13 +350,7 @@ def get_top_k_movies_llm(user_data, combined_movies: List[dict], k: int = 5) -> 
         "user_data": user_data
     })
     # llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=2,
-    )
+
     response = llm.invoke(prompt)
     try:
         start = response.content.find("{")
@@ -412,7 +410,7 @@ def recommend_movies(input: str) -> str:
             "user_data": user_data
         })
 
-        llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+        # llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
         response = llm.invoke(prompt)
         start = response.content.find("{")
         end = response.content.rfind("}") + 1
@@ -424,14 +422,14 @@ def recommend_movies(input: str) -> str:
 
 tools = [recommend_movies]
 
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+# llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
 
-agent = initialize_agent(
-    tools=tools,
-    llm=llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True
-)
+# agent = initialize_agent(
+#     tools=tools,
+#     llm=llm,
+#     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+#     verbose=True
+# )
 executor = ThreadPoolExecutor(max_workers=3)
 
 def fetch_kg_recs(user_data: Dict) -> List[Dict]:
