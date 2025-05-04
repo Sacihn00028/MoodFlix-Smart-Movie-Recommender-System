@@ -89,7 +89,8 @@ Return your answer *only* in this JSON format:
     }}
     // up to {k} entries
   ]
-}}```
+}}
+```  
 """.strip())
 def get_top_movies_by_language(language_name: str, k: int = 10, max_runtime: Union[int,None] = None) -> List[dict]:
     with driver.session() as session:
@@ -215,11 +216,11 @@ def match_into_domain(inp: str, domain: list[str]) -> str:
         A user gave the input: "{user_text}".
         Match the input to the single semantically closest class in the domain.
         Return the result *only* in this JSON format:
-        
-json
-        {{ "match": "CLASS_NAME" }}
-
-        where CLASS_NAME is exactly one of the domain entries.
+        ```
+            json
+            {{ "match": "CLASS_NAME" }}
+        // where CLASS_NAME is exactly one of the domain entries.
+        ``` 
     """.strip()
     match_prompt = PromptTemplate.from_template(template.strip())
     prompt = match_prompt.invoke({

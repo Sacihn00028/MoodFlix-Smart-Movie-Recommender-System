@@ -4,7 +4,7 @@ import os
 from typing import List, Union
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 load_dotenv()
 from KG.KG_pipeline import fetch_data_from_KG
 from CStrings.iterative import iterative_cstring_gen
@@ -12,6 +12,7 @@ from langchain_core.prompts import PromptTemplate
 from KnowledgeBase.knowledge_base import Get_knowledge_Base_Lang
 from MoodHandling.mood_handling_text import infer_user_mood
 from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 import sqlite3
 import webbrowser
 import httpx
@@ -19,7 +20,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Optional
 from urllib.parse import urlencode
-
+os.environ["GOOGLE_API_KEY"] = "AIzaSyDcMjk3HAi0bxucSZ5mD_BDwq2WECpCCBA"
 vs = Get_knowledge_Base_Lang()
 # --------------------
 # Configuration
@@ -28,10 +29,12 @@ load_dotenv()
 vs = Get_knowledge_Base_Lang()  # instantiate vector search (LangChain knowledge base)
 
 # Load secrets - Ensure these are set in Streamlit Cloud or your .streamlit/secrets.toml
-GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI")  # e.g., "http://localhost:8501" for local dev
-
+# GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID")
+# GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET")
+# REDIRECT_URI = st.secrets.get("REDIRECT_URI")  # e.g., "http://localhost:8501" for local dev
+GOOGLE_CLIENT_ID = "878896184507-km46mjk3knsnlq12n1pav8bu5ktkn5qi.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+REDIRECT_URI = "http://localhost:8501"
 # Basic check if secrets are loaded
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not REDIRECT_URI:
     st.error("OAuth secrets not found! Please configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and REDIRECT_URI in Streamlit secrets.")
@@ -149,23 +152,35 @@ def get_google_auth_url():
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
 async def get_token(code: str) -> Optional[Dict]:
-    """Exchange authorization code for access token."""
+    """Exchange authorization code for access token, with full debug logging."""
     token_url = "https://oauth2.googleapis.com/token"
     data = {
-        'client_id': GOOGLE_CLIENT_ID,
+        'client_id':     GOOGLE_CLIENT_ID,
         'client_secret': GOOGLE_CLIENT_SECRET,
-        'code': code,
-        'redirect_uri': REDIRECT_URI,
-        'grant_type': 'authorization_code'
+        'code':          code,
+        'redirect_uri':  REDIRECT_URI,
+        'grant_type':    'authorization_code'
     }
-    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    # Debug: print the exact code you received
+    st.write(f"Exchanging code: {repr(code)}")
+
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(token_url, data=data)
+            response = await client.post(token_url, data=data, headers=headers)
+            # Raise for 4xx/5xx so we can catch HTTPStatusError
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as http_err:
+            # This catches non-2xx responses
+            st.error(f"[HTTP {http_err.response.status_code}] {http_err.response.text}")
+            return None
         except Exception as e:
-            st.error(f"Error getting token: {e}")
+            # Any other errors (network, JSON parse, etc.)
+            st.error(f"Unexpected error: {e}")
             return None
 
 async def get_user_info(access_token: str) -> Optional[Dict]:
@@ -192,7 +207,7 @@ def handle_login() -> Optional[Dict]:
     # Check for authorization code in URL
     query_params = st.query_params
     if 'code' in query_params:
-        code = query_params['code'][0]
+        code = query_params['code']
         token = asyncio.run(get_token(code))
         if token:
             st.session_state.token = token
@@ -291,7 +306,8 @@ Provide your response ONLY in the following JSON format (if some errors please i
       "reason": "..."
     }}
   ]
-}}```
+}}
+```
 Movies:
 {context}
 """
@@ -304,14 +320,14 @@ def get_top_k_movies_llm(user_data, combined_movies: List[dict], k: int = 5) -> 
         "k": k,
         "user_data": user_data
     })
-
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=2,
-    )
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+    # llm = ChatGroq(
+    #     model="llama-3.1-8b-instant",
+    #     temperature=0,
+    #     max_tokens=None,
+    #     timeout=None,
+    #     max_retries=2,
+    # )
     response = llm.invoke(prompt)
 
     try:
@@ -326,99 +342,18 @@ def get_top_k_movies_llm(user_data, combined_movies: List[dict], k: int = 5) -> 
             "raw_response": response.content,
         }
 
+executor = ThreadPoolExecutor(max_workers=3)
 
-# if st.button("Get Recommendations"):
-#     user_data = {
-#         "mood": mood,
-#         "runtime": runtime,
-#         "age": age,
-#         "genre": genre,
-#         "language":language,
-#         "director":actor,
-#         "year":year,
-#     }
-#     user_data["mood"] = infer_user_mood(user_data)
-#     # print(user_data)
-#     recommendations_from_KG = fetch_data_from_KG(user_data, 3)
-#     similarity_recommendations_from_KG = []
-#     for recond in recommendations_from_KG:
-#         stri = json.dumps(recond)
-#         similar_docs = vs.similarity_search(stri, k=1)
-#         if similar_docs:
-#             for doc in similar_docs:
-#                 metadata = doc.metadata
-#                 movie_data = {
-#                     "Title": metadata.get("original_title", "N/A"),
-#                     "Year": metadata.get("release_date", "N/A"),
-#                     "Genre": metadata.get("genres", "N/A"),
-#                     "Director": metadata.get("director", "N/A"),
-#                     "Cast": metadata.get("cast", "N/A"),
-#                     "Full Description": doc.page_content,
-#                 }
-#                 similarity_recommendations_from_KG.append(movie_data)
-#     resp = iterative_cstring_gen(user_data, 2, 2)
-#     results = []
-#     for iterres in resp:
-#         similar_docs = vs.similarity_search(iterres.prompt, k=1)
-#         if similar_docs:
-#             for doc in similar_docs:
-#                 metadata = doc.metadata
-#                 movie_data = {
-#                     "Title": metadata.get("original_title", "N/A"),
-#                     "Year": metadata.get("release_date", "N/A"),
-#                     "Genre": metadata.get("genres", "N/A"),
-#                     "Director": metadata.get("director", "N/A"),
-#                     "Cast": metadata.get("cast", "N/A"),
-#                     "Full Description": doc.page_content,
-#                 }
-#                 results.append(movie_data)
-#     combined_movies = similarity_recommendations_from_KG + results
-#     top_movies = get_top_k_movies_llm(user_data, combined_movies, k=5)
-#     if "error" in top_movies:
-#         st.error(f"Error: {top_movies['error']}")
-#         st.text(top_movies["raw_response"])
-#     else:
-#         st.subheader("Top Movie Recommendations")
-#         for rec in top_movies.get("recommendations", []):
-#             st.markdown(f"### {rec.get('title', 'N/A')} ({rec.get('year', 'N/A')})")
-#             st.markdown(f"**Genre:** {rec.get('genre', 'N/A')}")
-#             st.markdown(f"**Director:** {rec.get('director', 'N/A')}")
-#             st.markdown(f"**Reason:** {rec.get('reason', 'N/A')}")
-#             st.markdown("---")
-def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
-    """Generate movie recommendations based on the user's mood answers."""
-    # Map the mood_answers list to a user_data dictionary for prompt generation
-    keys = ["mood", "runtime", "age", "genre", "language", "year", "actor"]
-    user_data = {keys[i]: mood_answers[i] if i < len(mood_answers) else "" 
-                 for i in range(len(keys))}
-    user_data["mood"] = infer_user_mood(user_data)
-    # print(user_data)
-    recommendations_from_KG = fetch_data_from_KG(user_data, 3)
-    similarity_recommendations_from_KG = []
-    for recond in recommendations_from_KG:
-        stri = json.dumps(recond)
-        similar_docs = vs.similarity_search(stri, k=1)
-        if similar_docs:
-            for doc in similar_docs:
-                metadata = doc.metadata
-                movie_data = {
-                    "Title": metadata.get("original_title", "N/A"),
-                    "Year": metadata.get("release_date", "N/A"),
-                    "Genre": metadata.get("genres", "N/A"),
-                    "Director": metadata.get("director", "N/A"),
-                    "Cast": metadata.get("cast", "N/A"),
-                    "Full Description": doc.page_content,
-                }
-                similarity_recommendations_from_KG.append(movie_data)
-    # 1. Generate characteristic search prompts
-    resp = iterative_cstring_gen(user_data, 3, 2)
-    # 2. Vector similarity search for each prompt
-    results = []
-    for iterres in resp:
-        similar_docs = vs.similarity_search(iterres.prompt, k=1)
-        for doc in similar_docs or []:
+def fetch_kg_recs(user_data: Dict) -> List[Dict]:
+    """Fetch and process recommendations from your knowledge graph."""
+    recs = fetch_data_from_KG(user_data, 3)
+    sim_recs = []
+    for recond in recs:
+        payload = json.dumps(recond)
+        docs = vs.similarity_search(payload, k=1)
+        for doc in docs:
             md = doc.metadata
-            results.append({
+            sim_recs.append({
                 "Title": md.get("original_title", "N/A"),
                 "Year": md.get("release_date", "N/A"),
                 "Genre": md.get("genres", "N/A"),
@@ -426,21 +361,88 @@ def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
                 "Cast": md.get("cast", "N/A"),
                 "Full Description": doc.page_content,
             })
-    if not results:
-        return []
-    # print("KG: ", similarity_recommendations_from_KG)
-    print("Cstring: ", results)
-    combined_movies = similarity_recommendations_from_KG + results
-    # 3. LLM to pick top 5
-    top_movies = get_top_k_movies_llm(user_data, combined_movies, k=5)
+    print("Knowledge Graph:\n", sim_recs)
+    return sim_recs
+
+
+def fetch_cstring_recs(user_data: Dict) -> List[Dict]:
+    """Generate c-strings and fetch similarity results."""
+    resp = iterative_cstring_gen(user_data, 3, 2)
+    cstring_recs = []
+    for iterres in resp:
+        docs = vs.similarity_search(iterres.prompt, k=1)
+        for doc in docs:
+            md = doc.metadata
+            cstring_recs.append({
+                "Title": md.get("original_title", "N/A"),
+                "Year": md.get("release_date", "N/A"),
+                "Genre": md.get("genres", "N/A"),
+                "Director": md.get("director", "N/A"),
+                "Cast": md.get("cast", "N/A"),
+                "Full Description": doc.page_content,
+            })
+    print("Sim recs:\n",cstring_recs)
+    return cstring_recs
+
+
+def fetch_watch_history(user_email: str) -> List[Dict]:
+    """Fetch the user's watch history."""
+    history = get_user_watch_history(user_email)
+    history_recs = []
+    for movie in history:
+        history_recs.append({
+            "Title": movie.get('movie_name', 'N/A'),
+            "Year": movie.get('year', 'N/A'),
+            "Genre": movie.get('genre', 'N/A'),
+            "Director": 'N/A',
+            "Cast": 'N/A',
+            "Full Description": movie.get('description', 'N/A'),
+        })
+    print("Watch History recs:\n", history_recs)
+    return history_recs
+
+
+def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
+    """Generate movie recommendations using parallel threads."""
+    # Prepare user_data
+    keys = ["mood", "runtime", "age", "genre", "language", "year", "actor"]
+    user_data = {keys[i]: mood_answers[i] if i < len(mood_answers) else "" for i in range(len(keys))}
+    user_data["mood"] = infer_user_mood(user_data)
+
+    # Submit tasks to executor
+    futures = {
+        executor.submit(fetch_kg_recs, user_data): 'kg',
+        executor.submit(fetch_cstring_recs, user_data): 'cstring',
+        executor.submit(fetch_watch_history, user_email): 'history'
+    }
+
+    similarity_recs = []
+    cstring_recs = []
+    history_recs = []
+
+    for future in as_completed(futures):
+        task_type = futures[future]
+        try:
+            result = future.result()
+            if task_type == 'kg':
+                similarity_recs = result
+            elif task_type == 'cstring':
+                cstring_recs = result
+            elif task_type == 'history':
+                history_recs = result
+        except Exception as exc:
+            st.error(f"Error in {task_type} fetch: {exc}")
+
+    # Combine and pass to LLM for top-k selection
+    combined = similarity_recs + cstring_recs + history_recs
+    top_movies = get_top_k_movies_llm(user_data, combined, 7)
+
     if "error" in top_movies:
         st.error(f"Recommendation generation error: {top_movies['error']}")
         return []
-    
-    # 4. Extract and annotate with an 'id'
+
     final_recs = top_movies.get("recommendations", [])
     for idx, rec in enumerate(final_recs):
-        # assign a simple unique id (you can customize this)
         rec["id"] = f"rec_{idx}"
     return final_recs
 

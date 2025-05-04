@@ -4,7 +4,7 @@ import os
 from typing import List, Union
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-
+from concurrent.futures import ThreadPoolExecutor
 load_dotenv()
 from KG.KG_pipeline import fetch_data_from_KG
 from CStrings.iterative import iterative_cstring_gen
@@ -66,11 +66,53 @@ Provide your response ONLY in the following JSON format (if some errors please i
     }}
   ]
 }}
+```
 Movies:
 {context}
 """
 )
+def process_KG(vs, user_data):
+    recommendations_from_KG = fetch_data_from_KG(user_data, 2)
+    similarity_recommendations_from_KG = []
 
+    for recond in recommendations_from_KG:
+        stri = json.dumps(recond)
+        similar_docs = vs.similarity_search(stri, k=1)
+        if similar_docs:
+            for doc in similar_docs:
+                metadata = doc.metadata
+                movie_data = {
+                    "Title": metadata.get("original_title", "N/A"),
+                    "Year": metadata.get("release_date", "N/A"),
+                    "Genre": metadata.get("genres", "N/A"),
+                    "Director": metadata.get("director", "N/A"),
+                    "Cast": metadata.get("cast", "N/A"),
+                    "Full Description": doc.page_content,
+                }
+                similarity_recommendations_from_KG.append(movie_data)
+
+    return similarity_recommendations_from_KG
+
+def process_CStrings(vs, user_data):
+    resp = iterative_cstring_gen(user_data, 2, 3)
+    results = []
+
+    for iterres in resp:
+        similar_docs = vs.similarity_search(iterres.prompt, k=1)
+        if similar_docs:
+            for doc in similar_docs:
+                metadata = doc.metadata
+                movie_data = {
+                    "Title": metadata.get("original_title", "N/A"),
+                    "Year": metadata.get("release_date", "N/A"),
+                    "Genre": metadata.get("genres", "N/A"),
+                    "Director": metadata.get("director", "N/A"),
+                    "Cast": metadata.get("cast", "N/A"),
+                    "Full Description": doc.page_content,
+                }
+                results.append(movie_data)
+
+    return results
 def get_top_k_movies_llm(user_data, combined_movies: List[dict], k: int = 5) -> dict:
     context_str = build_context_string(combined_movies)
     prompt = prompt_template.invoke({
@@ -113,39 +155,14 @@ if st.button("Get Recommendations"):
     }
     user_data["mood"] = infer_user_mood(user_data)
     # print(user_data)
-    recommendations_from_KG = fetch_data_from_KG(user_data, 2)
-    similarity_recommendations_from_KG = []
-    for recond in recommendations_from_KG:
-        stri = json.dumps(recond)
-        similar_docs = vs.similarity_search(stri, k=1)
-        if similar_docs:
-            for doc in similar_docs:
-                metadata = doc.metadata
-                movie_data = {
-                    "Title": metadata.get("original_title", "N/A"),
-                    "Year": metadata.get("release_date", "N/A"),
-                    "Genre": metadata.get("genres", "N/A"),
-                    "Director": metadata.get("director", "N/A"),
-                    "Cast": metadata.get("cast", "N/A"),
-                    "Full Description": doc.page_content,
-                }
-                similarity_recommendations_from_KG.append(movie_data)
-    resp = iterative_cstring_gen(user_data, 2, 3)
-    results = []
-    for iterres in resp:
-        similar_docs = vs.similarity_search(iterres.prompt, k=1)
-        if similar_docs:
-            for doc in similar_docs:
-                metadata = doc.metadata
-                movie_data = {
-                    "Title": metadata.get("original_title", "N/A"),
-                    "Year": metadata.get("release_date", "N/A"),
-                    "Genre": metadata.get("genres", "N/A"),
-                    "Director": metadata.get("director", "N/A"),
-                    "Cast": metadata.get("cast", "N/A"),
-                    "Full Description": doc.page_content,
-                }
-                results.append(movie_data)
+    with ThreadPoolExecutor() as executor:
+        future_KG = executor.submit(process_KG, vs, user_data)
+        future_CString = executor.submit(process_CStrings, vs, user_data)
+
+        similarity_recommendations_from_KG = future_KG.result()
+        results = future_CString.result()
+
+    # Combine
     combined_movies = similarity_recommendations_from_KG + results
     top_movies = get_top_k_movies_llm(user_data, combined_movies, k=5)
     if "error" in top_movies:
