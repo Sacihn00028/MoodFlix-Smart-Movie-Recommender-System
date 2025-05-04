@@ -25,7 +25,7 @@ With the rise of OTT platforms, users are overwhelmed by the vast number of cont
 
 3. **Start the application**
    ```bash
-   streamlit run newfile.py
+   streamlit run run.py
    ```
 
 ---
