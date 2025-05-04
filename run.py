@@ -1,34 +1,45 @@
-from typing import List, Dict, Optional, Union  # add Union to existing import
+import streamlit as st
+import json
+import os
+from typing import List, Union
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from KG.KG_pipeline import fetch_data_from_KG
 from CStrings.iterative import iterative_cstring_gen
-from KnowledgeBase.knowledge_base import Get_knowledge_Base_Lang
-from langchain.schema import Document
 from langchain_core.prompts import PromptTemplate
+from KnowledgeBase.knowledge_base import Get_knowledge_Base_Lang
+from MoodHandling.mood_handling_text import infer_user_mood
 from langchain_groq import ChatGroq
-import streamlit as st
+from langchain_google_genai import ChatGoogleGenerativeAI
 import sqlite3
-import asyncio
-import httpx
-from datetime import datetime
-import os
 import webbrowser
+import httpx
+import asyncio
+from datetime import datetime
+from typing import Dict, Optional
 from urllib.parse import urlencode
-import content
-
-# --------------------
-# Configuration
-# --------------------
-
+import http.client
+import requests
+from langchain.agents import initialize_agent, AgentType
+from langchain.agents import tool
 load_dotenv()
-vs = Get_knowledge_Base_Lang()  # instantiate vector search (LangChain knowledge base)
+movies_api_connection = http.client.HTTPSConnection("imdb8.p.rapidapi.com")
+# os.environ["GOOGLE_API_KEY"] = "AIzaSyDcMjk3HAi0bxucSZ5mD_BDwq2WECpCCBA"
+vs = Get_knowledge_Base_Lang()
+load_dotenv()
+vs = Get_knowledge_Base_Lang()
 
-# Load secrets - Ensure these are set in Streamlit Cloud or your .streamlit/secrets.toml
-GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI")  # e.g., "http://localhost:8501" for local dev
-
+GOOGLE_CLIENT_ID = os.environ['GOOGLE_CLIENT_ID']
+GOOGLE_CLIENT_SECRET = os.environ['GOOGLE_CLIENT_SECRET']
+REDIRECT_URI = os.environ['REDIRECT_URI']
 # Basic check if secrets are loaded
+GENRE_NAMES = [ "Any",
+    "Action", "Adventure", "Fantasy", "Science Fiction", "Crime", "Drama",
+    "Thriller", "Animation", "Family", "Western", "Comedy", "Romance",
+    "Horror", "Mystery", "History", "War", "Music", "Documentary", "Foreign",
+    "TV", "Movie"
+]
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not REDIRECT_URI:
     st.error("OAuth secrets not found! Please configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and REDIRECT_URI in Streamlit secrets.")
     st.stop()
@@ -57,6 +68,31 @@ def init_db():
     
     conn.commit()
     conn.close()
+def fetch_imdb_info(title):
+    url = "https://imdb8.p.rapidapi.com/auto-complete"
+    querystring = {"q": title}
+
+    headers = {
+        "x-rapidapi-key": os.environ['RAPID_API_KEY'],
+        "x-rapidapi-host": "imdb8.p.rapidapi.com"
+    }
+
+    response = requests.get(url, headers=headers, params=querystring)
+    if response.status_code == 200:
+        data = response.json()
+        if "d" in data and len(data["d"]) > 0:
+            first_result = data["d"][0]
+            return {
+                "id": first_result.get("id"),
+                "title": first_result.get("l"),
+                "image": first_result.get("i", {}).get("imageUrl"),
+                "year": first_result.get("y"),
+                "cast": first_result.get("s")
+            }
+        else:
+            return {"error": "No results found"}
+    else:
+        return {"error": f"HTTP {response.status_code}", "detail": response.text}
 
 # Initialize database
 init_db()
@@ -145,23 +181,35 @@ def get_google_auth_url():
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
 async def get_token(code: str) -> Optional[Dict]:
-    """Exchange authorization code for access token."""
+    """Exchange authorization code for access token, with full debug logging."""
     token_url = "https://oauth2.googleapis.com/token"
     data = {
-        'client_id': GOOGLE_CLIENT_ID,
+        'client_id':     GOOGLE_CLIENT_ID,
         'client_secret': GOOGLE_CLIENT_SECRET,
-        'code': code,
-        'redirect_uri': REDIRECT_URI,
-        'grant_type': 'authorization_code'
+        'code':          code,
+        'redirect_uri':  REDIRECT_URI,
+        'grant_type':    'authorization_code'
     }
-    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    # Debug: print the exact code you received
+    st.write(f"Exchanging code: {repr(code)}")
+
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(token_url, data=data)
+            response = await client.post(token_url, data=data, headers=headers)
+            # Raise for 4xx/5xx so we can catch HTTPStatusError
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as http_err:
+            # This catches non-2xx responses
+            st.error(f"[HTTP {http_err.response.status_code}] {http_err.response.text}")
+            return None
         except Exception as e:
-            st.error(f"Error getting token: {e}")
+            # Any other errors (network, JSON parse, etc.)
+            st.error(f"Unexpected error: {e}")
             return None
 
 async def get_user_info(access_token: str) -> Optional[Dict]:
@@ -186,9 +234,9 @@ def handle_login() -> Optional[Dict]:
         return st.session_state.user
 
     # Check for authorization code in URL
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     if 'code' in query_params:
-        code = query_params['code'][0]
+        code = query_params['code']
         token = asyncio.run(get_token(code))
         if token:
             st.session_state.token = token
@@ -233,25 +281,22 @@ def handle_logout():
                 del st.session_state[key]
         st.rerun()
 
-# --------------------
-# Recommendation Logic (Placeholder)
-# --------------------
+
+
 class MovieRecommendation(BaseModel):
     title: str = Field(..., description="Movie title")
     year: Union[str, int]
     genre: str
-    director: str
+    director: Optional[str]
     reason: str = Field(..., description="Why this movie is recommended")
 
 class FinalMovieList(BaseModel):
     recommendations: List[MovieRecommendation]
-
 def build_context_string(movies: List[dict]) -> str:
-    """Format candidate movies into a single context string for the LLM."""
     context = ""
     for i, movie in enumerate(movies, 1):
         context += f"""
-            Movie {i}:
+            Movie {i}: 
             Title: {movie.get("Title", "N/A")}
             Year: {movie.get("Year", "N/A")}
             Genre: {movie.get("Genre", "N/A")}
@@ -261,36 +306,46 @@ def build_context_string(movies: List[dict]) -> str:
             Description: {movie.get("Full Description", "N/A")}
         """
     return context
-
+from langchain.agents import tool
+from typing import Annotated
+from langchain.tools import tool
+import json
+from langchain.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 prompt_template = PromptTemplate.from_template(
     """
-You are a movie assistant. Given the following movie candidates, select the best {k} movie recommendations for the user.
-
-Provide your response in the following JSON format:
-```json
-{{
-  "recommendations": [
+    You are a movie assistant. Given the following movie candidates and the user data {user_data}, 
+    select the best {k} movie recommendations for the user. 
+    Also only consider UNIQUE movies only.
+    
+    Provide your response ONLY in the following JSON format (if some errors please ignore):
+    ```json
     {{
-      "title": "...",
-      "year": ...,
-      "genre": "...",
-      "director": "...",
-      "reason": "..."
+        "recommendations": [
+        {{
+            "title": "...",
+            "year": ...,
+            "genre": "...",
+            "director": "...",
+            "reason": "..."
+        }}
+        ]
     }}
-  ]
-}}
-Movies:
-{context}
-"""
+    ```
+    Movies:
+    {context}
+    """
 )
 
-def get_top_k_movies_llm(combined_movies: List[dict], k: int = 5) -> dict:
-    """Use LLM (ChatGroq) to select the top k movie recommendations from candidates."""
-    # Build the context string for LLM prompt
+def get_top_k_movies_llm(user_data, combined_movies: List[dict], k: int = 5) -> dict:
     context_str = build_context_string(combined_movies)
-    prompt = prompt_template.invoke({"context": context_str, "k": k})
-    
-    # Call the LLM (ChatGroq model) with the prompt
+    # print(context_str)
+    prompt = prompt_template.invoke({
+        "context": context_str,
+        "k": k,
+        "user_data": user_data
+    })
+    # llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
     llm = ChatGroq(
         model="llama-3.1-8b-instant",
         temperature=0,
@@ -299,35 +354,118 @@ def get_top_k_movies_llm(combined_movies: List[dict], k: int = 5) -> dict:
         max_retries=2,
     )
     response = llm.invoke(prompt)
-    
-    # Parse the LLM's JSON response using the Pydantic model
     try:
         start = response.content.find("{")
         end = response.content.rfind("}") + 1
         json_content = response.content[start:end]
+        # print(json_content)
         parsed = FinalMovieList.model_validate_json(json_content)
         return parsed.model_dump()
     except Exception as e:
-        # Return error info if parsing fails
-        return {"error": str(e), "raw_response": response.content}
+        return {
+            "error": str(e),
+            "raw_response": response.content,
+        }
+@tool
+def recommend_movies(input: str) -> str:
+    """
+    Recommend top-k unique movies based on user data and a list of candidate movies.
+    Input should be a JSON string with:
+      - user_data: dict
+      - movie_list: str (stringified context of movie candidates)
+      - k: int (number of recommendations)
+    """
+    try:
+        data = json.loads(input)
+        user_data = data["user_data"]
+        movie_list = data["movie_list"]
+        k = data.get("k", 5)
 
-def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
-    """Generate movie recommendations based on the user's mood answers."""
-    # Map the mood_answers list to a user_data dictionary for prompt generation
-    keys = ["mood", "runtime", "age", "genre", "language", "year", "actor"]
-    user_data = {keys[i]: mood_answers[i] if i < len(mood_answers) else "" 
-                 for i in range(len(keys))}
-    
-    # 1. Generate characteristic search prompts
+        prompt_template = PromptTemplate.from_template(
+            """
+            You are a movie assistant. Given the following movie candidates and the user data {user_data}, 
+            select the best {k} movie recommendations for the user. 
+            Also only consider UNIQUE movies only.
+            
+            Provide your response ONLY in the following JSON format (if some errors please ignore):
+            ```json
+            {{
+              "recommendations": [
+                {{
+                  "title": "...",
+                  "year": ...,
+                  "genre": "...",
+                  "director": "...",
+                  "reason": "..."
+                }}
+              ]
+            }}
+            ```
+            Movies:
+            {context}
+            """
+        )
+
+        prompt = prompt_template.invoke({
+            "context": movie_list,
+            "k": k,
+            "user_data": user_data
+        })
+
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+        response = llm.invoke(prompt)
+        start = response.content.find("{")
+        end = response.content.rfind("}") + 1
+        json_content = response.content[start:end]
+        return json_content
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+tools = [recommend_movies]
+
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.7)
+
+agent = initialize_agent(
+    tools=tools,
+    llm=llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=True
+)
+executor = ThreadPoolExecutor(max_workers=3)
+
+def fetch_kg_recs(user_data: Dict) -> List[Dict]:
+    """Fetch and process recommendations from your knowledge graph."""
+    if(user_data.get("genre", None) or user_data.get("language", None) or user_data.get("runtime", None)):
+        recs = fetch_data_from_KG(user_data, 3)
+        sim_recs = []
+        for recond in recs:
+            payload = json.dumps(recond)
+            docs = vs.similarity_search(payload, k=1)
+            for doc in docs:
+                md = doc.metadata
+                sim_recs.append({
+                    "Title": md.get("original_title", "N/A"),
+                    "Year": md.get("release_date", "N/A"),
+                    "Genre": md.get("genres", "N/A"),
+                    "Director": md.get("director", "N/A"),
+                    "Cast": md.get("cast", "N/A"),
+                    "Full Description": doc.page_content,
+                })
+        # print("Knowledge Graph:\n", sim_recs)
+        return sim_recs
+    else:
+        return []
+
+def fetch_cstring_recs(user_data: Dict) -> List[Dict]:
+    """Generate c-strings and fetch similarity results."""
     resp = iterative_cstring_gen(user_data, 3, 2)
-    
-    # 2. Vector similarity search for each prompt
-    results = []
+    cstring_recs = []
     for iterres in resp:
-        similar_docs = vs.similarity_search(iterres.prompt, k=1)
-        for doc in similar_docs or []:
+        docs = vs.similarity_search(iterres.prompt, k=1)
+        for doc in docs:
             md = doc.metadata
-            results.append({
+            cstring_recs.append({
                 "Title": md.get("original_title", "N/A"),
                 "Year": md.get("release_date", "N/A"),
                 "Genre": md.get("genres", "N/A"),
@@ -335,26 +473,66 @@ def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
                 "Cast": md.get("cast", "N/A"),
                 "Full Description": doc.page_content,
             })
-    if not results:
-        return []
-    
-    # 3. LLM to pick top 5
-    top_movies = get_top_k_movies_llm(results, k=5)
+    # print("Sim recs:\n",cstring_recs)
+    return cstring_recs
+
+
+def fetch_watch_history(user_email: str) -> List[Dict]:
+    """Fetch the user's watch history."""
+    history = get_user_watch_history(user_email)
+    if(history):
+        history_recs = []
+        for movie in history:
+            history_recs.append({
+                "Title": movie.get('movie_name', 'N/A'),
+                "Year": movie.get('year', 'N/A'),
+                "Genre": movie.get('genre', 'N/A'),
+                "Director": 'N/A',
+                "Cast": 'N/A',
+                "Full Description": movie.get('description', 'N/A'),
+            })
+        # print("Watch History recs:\n", history_recs)
+        return history_recs
+    else: return []
+
+def get_recommendations(mood_answers: List[str], user_email: str) -> List[Dict]:
+    """Generate movie recommendations using parallel threads."""
+    # Prepare user_data
+    keys = ["mood", "runtime", "age", "genre", "language", "year", "actor"]
+    user_data = {keys[i]: mood_answers[i] if i < len(mood_answers) else "" for i in range(len(keys))}
+    user_data["mood"] = infer_user_mood(user_data)
+    # Submit tasks to executor
+    futures = {
+        executor.submit(fetch_kg_recs, user_data): 'kg',
+        executor.submit(fetch_cstring_recs, user_data): 'cstring',
+        executor.submit(fetch_watch_history, user_email): 'history'
+    }
+    similarity_recs = []
+    cstring_recs = []
+    history_recs = []
+    for future in as_completed(futures):
+        task_type = futures[future]
+        try:
+            result = future.result()
+            if task_type == 'kg':
+                similarity_recs = result
+            elif task_type == 'cstring':
+                cstring_recs = result
+            elif task_type == 'history':
+                history_recs = result
+        except Exception as exc:
+            st.error(f"Error in {task_type} fetch: {exc}")
+
+    # Combine and pass to LLM for top-k selection
+    combined = similarity_recs + cstring_recs + history_recs
+    top_movies = get_top_k_movies_llm(user_data, combined, 10)
     if "error" in top_movies:
         st.error(f"Recommendation generation error: {top_movies['error']}")
         return []
-    
-    # 4. Extract and annotate with an 'id'
     final_recs = top_movies.get("recommendations", [])
     for idx, rec in enumerate(final_recs):
-        # assign a simple unique id (you can customize this)
         rec["id"] = f"rec_{idx}"
     return final_recs
-
-
-# --------------------
-# Streamlit Page Layout
-# --------------------
 
 def main():
     st.set_page_config(page_title="Movie Mood Recommender", page_icon="🎥", layout="wide")
@@ -413,7 +591,6 @@ def main():
             st.subheader("📽️ Your Watched Movies")
             num_history_cols = 4
             history_cols = st.columns(num_history_cols)
-            
             for idx, movie in enumerate(st.session_state.watch_history):
                 col_index = idx % num_history_cols
                 with history_cols[col_index]:
@@ -448,33 +625,48 @@ def main():
 
     mood_form = st.form(key="mood_form")
     with mood_form:
-        mood_questions = [
-            "Describe what you are feeling or what you want to feel?",
-            "How much time can you spare for the content?",
-            "Your age group",
-            "Genres that you prefer right now (if any)",
-            "Any language preference?",
-            "Which year's content would you prefer?",
-            "Any actor you wanna watch?"
-        ]
+        st.markdown("### 🎬 Tell us about your preferences!", unsafe_allow_html=True)
         mood_answers: List[str] = []
+        # Question 1: Text input
+        st.markdown("**<span style='font-size:18px'>1. How was your day today?</span>**", unsafe_allow_html=True)
+        ans1 = st.text_input("", key="q1")
+        mood_answers.append(ans1.strip() if ans1 else "")
 
-        for i, question in enumerate(mood_questions):
-            ans = st.text_input(question, key=f"q{i+1}")
-            mood_answers.append(ans.strip() if ans else "")
+        # Question 2: Slider
+        st.markdown("**<span style='font-size:18px'>2. How much time can you spare for the content (in minutes)?</span>**", unsafe_allow_html=True)
+        ans2 = st.slider("", 60, 300, step=10, key="q2")
+        mood_answers.append(str(ans2))
 
+        # Question 3: Age group
+        st.markdown("**<span style='font-size:18px'>3. Your age group</span>**", unsafe_allow_html=True)
+        ans3 = st.text_input("", key="q3")
+        mood_answers.append(ans3.strip() if ans3 else "")
+
+        # Question 4: Genre dropdown
+        st.markdown("**<span style='font-size:18px'>4. Which genre fascinates you the most?</span>**", unsafe_allow_html=True)
+        ans4 = st.selectbox("", GENRE_NAMES, key="q4")
+        mood_answers.append(ans4)
+
+        # Question 5: Language preference
+        st.markdown("**<span style='font-size:18px'>5. Any language preference?</span>**", unsafe_allow_html=True)
+        ans5 = st.text_input("", key="q5")
+        mood_answers.append(ans5.strip() if ans5 else "")
+
+        # Question 6: Preferred year
+        st.markdown("**<span style='font-size:18px'>6. Which year's content would you prefer?</span>**", unsafe_allow_html=True)
+        ans6 = st.text_input("", key="q6")
+        mood_answers.append(ans6.strip() if ans6 else "")
+        st.markdown("**<span style='font-size:18px'>7. Your favourite director?</span>**", unsafe_allow_html=True)
+        ans7 = st.text_input("", key="q7")
+        mood_answers.append(ans7.strip() if ans7 else "")
         submit_button = st.form_submit_button(label="🎥 Find Movies!")
-
     if submit_button:
         st.session_state.added_movie_ids = set()
-
         if not any(mood_answers):
             st.warning("Please answer at least one question to get recommendations.")
         else:
-
             with st.spinner("Generating recommendations based on your mood..."):
                 movies = get_recommendations(mood_answers, user['email'])
-            
             st.session_state.recommendations = movies
             st.session_state.show_recommendations = True
 
@@ -493,14 +685,12 @@ def main():
             else:
                 num_rec_cols = 3
                 rec_cols = st.columns(num_rec_cols)
-
                 # Initialize selected movies in session state if not exists
                 if 'selected_movies' not in st.session_state:
                     st.session_state.selected_movies = set()
 
                 # Track current selections
                 current_selections = set()
-
                 for idx, movie in enumerate(filtered_movies):
                     with rec_cols[idx % num_rec_cols]:
                         movie_identifier = movie.get('id')
@@ -509,8 +699,20 @@ def main():
                             continue
 
                         # Styled display for recommended movie title
-                        st.markdown(f"<div class='card-title'>{movie.get('title', 'N/A')} ({movie.get('year', 'N/A')})</div>", unsafe_allow_html=True)
-                        if movie.get('description'):
+                        info = fetch_imdb_info(movie.get("title", ""))
+                        print(info)
+                        imdb_id = info["id"]
+                        image_url = info["image"]
+                        if image_url:
+                            st.image(image_url, width=200)
+                        st.markdown(f"""
+                        <div class='card-title'>
+                            <a href="https://www.imdb.com/title/{imdb_id}" target="_blank">
+                                {movie.get("title", "N/A")} ({movie.get("year", "N/A")})
+                            </a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if movie.get('overview'):
                             st.markdown(f"<div class='card-description'><em>{movie['description']}</em></div>", unsafe_allow_html=True)
                         if movie.get('imdbRating'):
                             st.markdown(f"<div class='card-meta'>IMDb Rating: {movie.get('imdbRating')} ⭐ ({movie.get('genre', 'N/A')})</div>", unsafe_allow_html=True)
@@ -529,15 +731,12 @@ def main():
                             key=checkbox_key,
                             value=st.session_state[checkbox_key]
                         )
-
                         if st.session_state.get(checkbox_key, False):
                             current_selections.add(movie_identifier)
                         else:
                             current_selections.discard(movie_identifier)
-
                 # Review/Finalize Button
                 review_selections = st.button("✅ Add Selected to Watch History")
-
                 if review_selections:
                     added_count = 0
                     failed_movies = []
@@ -550,7 +749,7 @@ def main():
                                 'movie_name': movie.get('title'),
                                 'year': movie.get('year'),
                                 'genre': movie.get('genre'),
-                                'description': movie.get('description'),
+                                'description': movie.get('overview'),
                                 'imdbRating': movie.get('imdbRating'),
                             }
                             try:
@@ -559,19 +758,18 @@ def main():
                                 if 'seen_movies' in st.session_state:
                                     st.session_state.seen_movies[movie_identifier] = True
                                 added_count += 1
-                                st.session_state[checkbox_key] = False  # Uncheck after adding
+                                st.session_state[checkbox_key] = False 
                             except Exception as e:
                                 failed_movies.append(movie.get('title', 'Unknown Movie'))
                                 st.error(f"Failed to add movie '{movie.get('title')}': {e}")
-
                     if added_count > 0:
                         st.success(f"✅ Successfully added {added_count} movie(s) to your watch history!")
                         if failed_movies:
                             st.warning(f"⚠️ Failed to add the following movies: {', '.join(failed_movies)}")
                         st.rerun()
-
         else:
             st.error("Sorry, we couldn't find any recommendations at this time. Please try again later.")
 
 if __name__ == "__main__":
     main()
+

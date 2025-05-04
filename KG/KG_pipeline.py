@@ -9,7 +9,7 @@ from langchain_chroma import Chroma
 import json
 from langchain_huggingface import HuggingFaceEmbeddings
 import numpy as np
-os.environ["GOOGLE_API_KEY"] = "AIzaSyDmjdwnfVSObjHaPaaytSBDG1FYVhYiqaM"
+
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 
 def Get_knowledge_Base_Lang():
