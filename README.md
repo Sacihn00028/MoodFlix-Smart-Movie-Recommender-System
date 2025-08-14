@@ -30,7 +30,6 @@ With the rise of OTT platforms, users are overwhelmed by the vast number of cont
 ## To see the weights of trained-model
 we used a custom trained model to assign moods to movies by inferring from their overviews, to use that model, please load the model [weights](https://drive.google.com/drive/folders/1nI_oh_hDGofhzUgWFaQtgpWmUyUY8Pd8?usp=sharing) into the ```KnowledgeBase``` directory.
 
-
 ## 🧠 Features
 
 - AI-powered personalized movie recommendations
